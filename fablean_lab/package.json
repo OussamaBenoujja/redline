@@ -1,0 +1,22 @@
+{
+  "name": "fablean-lab",
+  "version": "0.1.0",
+  "description": "Fablean Lab: Desktop Reader Prototype",
+  "main": "main.js",
+  "scripts": {
+    "start": "set ELECTRON_RUN_AS_NODE=&& npx electron ."
+  },
+  "keywords": [
+    "fablean",
+    "electron",
+    "reader"
+  ],
+  "author": "Fablean Team",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^34.1.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.4"
+  }
+}
