@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fablean Lab</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Background Layers for Crossfading -->
+    <div id="bgA" class="bg-layer active"></div>
+    <div id="bgB" class="bg-layer"></div>
+
+    <!-- Readability Overlay -->
+    <div id="overlay"></div>
+
+    <!-- Scrollable Content -->
+    <div id="reader">
+        <!-- Paragraphs injected by app.js -->
+    </div>
+
+    <!-- Status Indicator (Optional) -->
+    <div id="status" style="position: fixed; bottom: 10px; right: 10px; z-index: 100; font-size: 12px; color: #666;">Ready</div>
+
+    <script src="app.js"></script>
+</body>
+</html>
