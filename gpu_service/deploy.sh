@@ -1,3 +1,19 @@
+#!/bin/bash
+# Fablean GPU Service Deployment Script
+# Run this in the RunPod web terminal
+
+set -e
+
+echo "=========================================="
+echo "  Fablean GPU Service Deployment"
+echo "=========================================="
+
+# 1. Create workspace
+mkdir -p /workspace/gpu_service
+cd /workspace/gpu_service
+
+# 2. Write app.py
+cat > app.py << 'APPEOF'
 
 import os
 import torch
@@ -102,8 +118,6 @@ async def lifespan(app: FastAPI):
         models["tokenizer"] = tokenizer
     except Exception as e:
         print(f"Failed to load LLM: {e}")
-        # non-fatal? strict requirements say "Must warm up models". 
-        # If LLM fails, service is broken.
         raise e
 
     print("All models loaded successfully!")
@@ -137,37 +151,27 @@ GLOBAL_STYLE = "sli artstyle, stylized silhouette photography, infront of, vibra
 GLOBAL_NEGATIVE = "black and white, monochrome, grayscale, text, watermark, logo, busy background, harsh noise, detailed face, detailed eyes, detailed skin, neon, graffiti, oversharpen, gritty film grain"
 
 def build_final_prompt(req: ImageGenerateRequest) -> tuple[str, str]:
-    # 1. Global Style
     parts = [GLOBAL_STYLE]
 
-    # 2. Character
     if req.character_id:
         char_info = CHARACTER_REGISTRY.get(req.character_id)
-        
         sig = req.character_signature
         if not sig and char_info:
             sig = char_info["signature"]
-        
         if sig:
-            # We append token + signature
             token = char_info["token"] if char_info else "character"
             parts.append(f"{token}, {sig}")
     elif req.character_signature:
          parts.append(f"character, {req.character_signature}")
 
-    # 3. Scene Prompt
     parts.append(req.prompt)
 
-    # 4. Framing
-    # Only append framing if it's explicitly one of the character-centric ones
     if req.framing and req.framing in FRAMING_PROMPTS:
-        # Check if we even have a character in the prompt or signature before forcing character framing
         if req.character_id or req.character_signature or "character" in req.prompt.lower():
             parts.append(FRAMING_PROMPTS[req.framing])
 
     final_prompt = ", ".join(parts)
     
-    # Negative
     final_neg = GLOBAL_NEGATIVE
     if req.negative_prompt:
         final_neg = f"{GLOBAL_NEGATIVE}, {req.negative_prompt}"
@@ -193,19 +197,15 @@ async def generate_image(req: ImageGenerateRequest):
     if "image" not in models:
         raise HTTPException(status_code=503, detail="Model not loaded")
 
-    # Construct Prompt
     final_prompt, final_negative = build_final_prompt(req)
 
-    # Concurrency Lock
     async with gpu_lock:
         print(f"Generating: {final_prompt[:100]}...")
         
-        # Deterministic Seed
         generator = None
         if req.seed is not None:
             generator = torch.Generator("cuda").manual_seed(req.seed)
 
-        # Run Inference (in threadpool to avoid blocking loop)
         def run_inference():
             return models["image"](
                 prompt=final_prompt,
@@ -221,11 +221,9 @@ async def generate_image(req: ImageGenerateRequest):
         try:
             image = await asyncio.to_thread(run_inference)
         except Exception as e:
-            # Catch CUDA OOM or other errors
             print(f"Inference failed: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
-    # Return PNG
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     buffer.seek(0)
@@ -243,7 +241,6 @@ async def direct_llm(req: LLMDirectRequest):
     if "llm" not in models:
         raise HTTPException(status_code=503, detail="LLM not loaded")
 
-    # Construct System Prompt
     system_msg = (
         "You are a visual director for a reading app. Analyze the text and output specific JSON "
         "describing silhouette scenes. "
@@ -276,7 +273,7 @@ async def direct_llm(req: LLMDirectRequest):
                     do_sample=False,
                     temperature=0.1,
                     top_p=0.9,
-                    return_full_text=False  # Do not return the prompt
+                    return_full_text=False
                 )
                 return outputs[0]["generated_text"]
             except Exception as e:
@@ -285,21 +282,17 @@ async def direct_llm(req: LLMDirectRequest):
         
         raw_output = await asyncio.to_thread(run_llm)
 
-    # 3. Robust JSON Extraction
     try:
-        # Strip markdown code blocks if present
         text_to_parse = raw_output
         if "```json" in text_to_parse:
             text_to_parse = text_to_parse.split("```json")[1].split("```")[0]
         elif "```" in text_to_parse:
-            # Maybe just ` ``` ` without language
             parts = text_to_parse.split("```")
             if len(parts) >= 2:
                 text_to_parse = parts[1]
         
         text_to_parse = text_to_parse.strip()
         
-        # Find the first opening brace or bracket
         idx_brace = text_to_parse.find("{")
         idx_bracket = text_to_parse.find("[")
         
@@ -314,7 +307,6 @@ async def direct_llm(req: LLMDirectRequest):
         if start_idx == -1:
             raise ValueError("No JSON object or list found (missing '{' or '[')")
         
-        # Use raw_decode to parse just the first valid JSON
         json_obj, _ = json.JSONDecoder().raw_decode(text_to_parse[start_idx:])
         return json_obj
     except Exception as e:
@@ -368,7 +360,6 @@ async def analyze_writing(req: WritingAnalyzeRequest):
 
         raw_output = await asyncio.to_thread(run_llm)
 
-    # JSON Extraction (reuse same robust logic)
     try:
         text_to_parse = raw_output
         if "```json" in text_to_parse:
@@ -393,3 +384,50 @@ async def analyze_writing(req: WritingAnalyzeRequest):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+APPEOF
+
+# 3. Write requirements.txt
+cat > requirements.txt << 'REQEOF'
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+torch>=2.1.2
+torchvision>=0.16.2
+diffusers>=0.29.0
+transformers>=4.40.0
+accelerate>=0.30.0
+huggingface-hub>=0.23.0
+safetensors==0.4.2
+pydantic==2.6.1
+python-multipart==0.0.9
+requests==2.31.0
+scipy==1.12.0
+regex
+sentencepiece
+protobuf
+bitsandbytes>=0.43.0
+peft>=0.11.0
+REQEOF
+
+echo ""
+echo "✅ Source code deployed to /workspace/gpu_service/"
+echo ""
+
+# 4. Install dependencies
+echo "📦 Installing Python dependencies..."
+pip install -q -r requirements.txt 2>&1 | tail -5
+
+echo ""
+echo "✅ Dependencies installed!"
+echo ""
+
+# 5. Check GPU
+echo "🖥️  GPU Info:"
+nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+echo ""
+
+# 6. Start the service
+echo "🚀 Starting Fablean GPU Service on port 8000..."
+echo "   Models will take 2-5 minutes to load (SDXL + Qwen2.5-7B)"
+echo ""
+cd /workspace/gpu_service
+python -m uvicorn app:app --host 0.0.0.0 --port 8000

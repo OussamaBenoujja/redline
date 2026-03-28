@@ -11,10 +11,12 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "better-sqlite3": "^12.6.2",
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "dotenv": "^17.2.4",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
   }
 }
