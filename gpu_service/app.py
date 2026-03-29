@@ -148,6 +148,88 @@ GLOBAL_STYLE = "sli artstyle, stylized silhouette photography, infront of, vibra
 
 GLOBAL_NEGATIVE = "black and white, monochrome, grayscale, text, watermark, logo, busy background, harsh noise, detailed face, detailed eyes, detailed skin, neon, graffiti, oversharpen, gritty film grain"
 
+def _repair_single_quoted_json_values(text: str) -> str:
+    """Convert single-quoted JSON value strings into valid JSON strings.
+
+    This handles model outputs like: "replacement": 'Some text with it's apostrophe'
+    by heuristically finding a terminating quote followed by `,`, `}` or `]`.
+    """
+    chars: List[str] = []
+    i = 0
+    n = len(text)
+    in_double = False
+    escape = False
+
+    while i < n:
+        ch = text[i]
+
+        if in_double:
+            chars.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_double = False
+            i += 1
+            continue
+
+        if ch == '"':
+            in_double = True
+            chars.append(ch)
+            i += 1
+            continue
+
+        if ch == "'":
+            j = i - 1
+            while j >= 0 and text[j].isspace():
+                j -= 1
+            prev = text[j] if j >= 0 else ""
+
+            # Attempt repair only for value-like contexts: after :, , or [
+            if prev in (":", ",", "["):
+                i += 1
+                value_chars: List[str] = []
+
+                while i < n:
+                    cur = text[i]
+                    if cur == "\\" and i + 1 < n:
+                        value_chars.append(cur)
+                        value_chars.append(text[i + 1])
+                        i += 2
+                        continue
+
+                    if cur == "'":
+                        k = i + 1
+                        while k < n and text[k].isspace():
+                            k += 1
+                        nxt = text[k] if k < n else ""
+
+                        # Treat quote as closing only when followed by a value separator.
+                        if nxt in (",", "}", "]") or k >= n:
+                            break
+
+                        # Otherwise keep as apostrophe/content.
+                        value_chars.append("'")
+                        i += 1
+                        continue
+
+                    value_chars.append(cur)
+                    i += 1
+
+                # Dumping through json.dumps guarantees proper escaping.
+                chars.append(json.dumps("".join(value_chars)))
+
+                # Skip closing single quote if we stopped at one.
+                if i < n and text[i] == "'":
+                    i += 1
+                continue
+
+        chars.append(ch)
+        i += 1
+
+    return "".join(chars)
+
 def extract_model_json(raw_output: str) -> Union[Dict[str, Any], List[Any]]:
     """Best-effort parser for model outputs that should be JSON but may include fences or python-style literals."""
     text = raw_output or ""
@@ -166,8 +248,8 @@ def extract_model_json(raw_output: str) -> Union[Dict[str, Any], List[Any]]:
     replacements = {
         "\u201c": '"',
         "\u201d": '"',
-        "\u2018": "'",
-        "\u2019": "'",
+        # Keep smart single quotes untouched. Converting these to ASCII apostrophes
+        # can break single-quoted literals (e.g., It's) in malformed model outputs.
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
@@ -199,9 +281,17 @@ def extract_model_json(raw_output: str) -> Union[Dict[str, Any], List[Any]]:
     except Exception:
         pass
 
+    # Repair malformed single-quoted values and parse as JSON again.
+    repaired_candidate = _repair_single_quoted_json_values(relaxed_candidate)
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(repaired_candidate)
+        return obj
+    except Exception:
+        pass
+
     # Final fallback: python-literal parsing (handles single-quoted strings/dicts).
     try:
-        obj = ast.literal_eval(relaxed_candidate)
+        obj = ast.literal_eval(repaired_candidate)
         if isinstance(obj, (dict, list)):
             return obj
         raise ValueError("Parsed value is not a dict/list")
