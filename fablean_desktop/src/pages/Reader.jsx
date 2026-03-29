@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Settings, Type, Image as ImageIcon, Download, MessageSquare, CheckCircle, X, Loader } from 'lucide-react';
+import { ArrowLeft, Settings, Image as ImageIcon, MessageSquare, X, Loader } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 
 export default function Reader() {
@@ -20,15 +20,20 @@ export default function Reader() {
   const [activeParagraphIdx, setActiveParagraphIdx] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
 
+  // AI Image States
+  const [paragraphImages, setParagraphImages] = useState({});
+  const [imageLoading, setImageLoading] = useState({});
+  const [imageErrors, setImageErrors] = useState({});
+  const [selectedParagraphId, setSelectedParagraphId] = useState(null);
+
   // Comments State
   const [newCommentText, setNewCommentText] = useState('');
   const [postingComment, setPostingComment] = useState(false);
 
   useEffect(() => {
-    // Assuming chapterId maps to chapterNum for the demo
-    const chapterId = chapterNum;
-    
-    // Log History Native Event
+    let isMounted = true;
+
+    // Log History Event
     if (user?.id) {
        fetch(`http://localhost:4000/api/users/${user.id}/history`, {
          method: 'POST',
@@ -37,18 +42,84 @@ export default function Reader() {
        }).catch(e => console.error("History log failed:", e));
     }
 
-    Promise.all([
-      fetch(`http://localhost:4000/api/chapters/${chapterId}`).then(res => res.json()),
-      fetch(`http://localhost:4000/api/chapters/${chapterId}/comments`).then(res => res.json())
-    ]).then(([chapterData, commentsData]) => {
-      setChapter(chapterData);
-      setComments(commentsData || []);
-      setLoading(false);
-    }).catch(err => {
-      console.error("Failed to fetch reader data:", err);
-      setLoading(false);
-    });
+    const loadReaderData = async () => {
+      try {
+        setLoading(true);
+        const chapterListRes = await fetch(`http://localhost:4000/api/novels/${novelId}/chapters`);
+        const chapterList = await chapterListRes.json();
+        if (!chapterListRes.ok) throw new Error(chapterList.error || 'Chapter list load failed');
+
+        const selected = (chapterList || []).find(ch => Number(ch.chapter_number) === Number(chapterNum));
+        if (!selected?.id) throw new Error('Chapter not found for this novel');
+
+        const chapterRes = await fetch(`http://localhost:4000/api/chapters/${selected.id}`);
+        const chapterData = await chapterRes.json();
+        if (!chapterRes.ok) throw new Error(chapterData.error || 'Chapter load failed');
+
+        const commentsRes = await fetch(`http://localhost:4000/api/chapters/${chapterData.id}/comments`);
+        const commentsData = await commentsRes.json();
+
+        if (!isMounted) return;
+        setChapter(chapterData);
+        setComments(commentsData || []);
+        setParagraphImages({});
+        setImageLoading({});
+        setImageErrors({});
+        setSelectedParagraphId(null);
+      } catch (err) {
+        console.error("Failed to fetch reader data:", err);
+        if (isMounted) setChapter({ error: err.message });
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadReaderData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [novelId, chapterNum]);
+
+  const generateParagraphImage = useCallback(async (paragraph, silent = false) => {
+    if (!chapter?.id || !paragraph?.id) return;
+
+    setImageLoading(prev => ({ ...prev, [paragraph.id]: true }));
+    setImageErrors(prev => ({ ...prev, [paragraph.id]: '' }));
+
+    try {
+      const res = await fetch('http://localhost:4000/api/images/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chapterId: chapter.id, paragraphId: paragraph.id })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Image generation failed');
+      if (!data.imageBase64) throw new Error('GPU returned no image');
+
+      setParagraphImages(prev => ({ ...prev, [paragraph.id]: data.imageBase64 }));
+    } catch (e) {
+      if (!silent) {
+        console.error('Paragraph image generation failed:', e.message);
+      }
+      setImageErrors(prev => ({ ...prev, [paragraph.id]: e.message || 'Failed to generate image' }));
+    } finally {
+      setImageLoading(prev => {
+        const next = { ...prev };
+        delete next[paragraph.id];
+        return next;
+      });
+    }
+  }, [chapter?.id]);
+
+  const handleParagraphSelect = useCallback(async (paragraph) => {
+    if (!showImages || !paragraph?.id) return;
+    setSelectedParagraphId(paragraph.id);
+    if (!paragraphImages[paragraph.id] && !imageLoading[paragraph.id]) {
+      await generateParagraphImage(paragraph);
+    }
+  }, [showImages, paragraphImages, imageLoading, generateParagraphImage]);
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-primary)' }}><Loader className="animate-spin text-accent" size={48} /></div>;
@@ -64,15 +135,25 @@ export default function Reader() {
   }
 
   const readerThemeClass = `theme-${themeMode} font-${fontFamily}`;
+  const chapterBgImage = selectedParagraphId ? paragraphImages[selectedParagraphId] : null;
+  const chapterBackgroundStyle = showImages && chapterBgImage
+    ? {
+        backgroundImage: `url(${chapterBgImage})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed'
+      }
+    : undefined;
   const getCommentsForParagraph = (idx) => comments.filter(c => c.paragraph_idx === idx);
   const activeComments = activeParagraphIdx !== null ? getCommentsForParagraph(activeParagraphIdx) : [];
 
   const handlePostComment = async () => {
       if(!newCommentText.trim()) return;
+      if (!chapter?.id) return;
       setPostingComment(true);
       try {
-          const chapterId = chapterNum;
-          const res = await fetch(`http://localhost:4000/api/chapters/${chapterId}/comments`, {
+        const res = await fetch(`http://localhost:4000/api/chapters/${chapter.id}/comments`, {
               method: 'POST',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({ userId: user.id, novelId, paragraphIdx: activeParagraphIdx, text: newCommentText })
@@ -94,7 +175,7 @@ export default function Reader() {
   };
 
   return (
-    <div className={`reader-container animate-fade-in ${readerThemeClass}`}>
+    <div className={`reader-container animate-fade-in ${readerThemeClass} ${showImages && chapterBgImage ? 'chapter-bg-enabled' : ''}`} style={chapterBackgroundStyle}>
       
       {showSettings && (
         <div className="settings-panel glass animate-fade-in">
@@ -179,18 +260,36 @@ export default function Reader() {
       </header>
 
       <main className="reader-content" style={{ fontSize: `${fontSize}px` }}>
-        <h1 className="chapter-hero-title">Chapter {chapter.chapter_number}</h1>
-        <h2 className="chapter-subtitle">{chapter.title}</h2>
-        
         {chapter.paragraphs && chapter.paragraphs.map(p => {
           const paragraphComments = getCommentsForParagraph(p.idx);
+          const imageErr = imageErrors[p.id];
+          const isImageLoading = !!imageLoading[p.id];
+
           return (
-            <div key={p.idx} className={`paragraph-block text`}>
-              {/* Note: The backend schema doesn't differentiate images directly here, using text */}
+            <div
+              key={p.idx}
+              className={`paragraph-block text paragraph-selectable ${selectedParagraphId === p.id ? 'active' : ''}`}
+              onClick={() => handleParagraphSelect(p)}
+              title={showImages ? 'Click to set this paragraph image as chapter background' : 'Enable image mode to set chapter background'}
+            >
               <div className="text-wrapper">
                 <p>{p.text}</p>
                 <div className="inline-action-bar">
-                   <button className="inline-comment-btn" onClick={() => setActiveParagraphIdx(p.idx)} title="View Comments">
+                   {showImages && (
+                     <button
+                       className="inline-comment-btn"
+                       onClick={(e) => {
+                         e.stopPropagation();
+                         handleParagraphSelect(p);
+                       }}
+                       disabled={isImageLoading}
+                       title="Set chapter background from this paragraph"
+                     >
+                       {isImageLoading ? <Loader size={14} className="animate-spin" /> : <ImageIcon size={14} />}
+                       <span>{isImageLoading ? 'Generating...' : (imageErr ? 'Retry bg' : (selectedParagraphId === p.id ? 'Background set' : 'Set background'))}</span>
+                     </button>
+                   )}
+                   <button className="inline-comment-btn" onClick={(e) => { e.stopPropagation(); setActiveParagraphIdx(p.idx); }} title="View Comments">
                      <MessageSquare size={16}/> <span>{paragraphComments.length}</span>
                    </button>
                 </div>

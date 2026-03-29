@@ -258,6 +258,14 @@ export default function AuthorEditor() {
                    : 
                    <span style={{color: '#ef4444', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem'}}><Wifi size={14}/> Disconnected</span>
                }
+
+               <button
+                 className="btn-outline"
+                 onClick={startNewChapter}
+                 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+               >
+                 <Plus size={16} /> New Chapter
+               </button>
                
                {savedSuccess && <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.9rem' }} className="animate-fade-in"><CheckCircle size={16} /> Draft Saved</span>}
                

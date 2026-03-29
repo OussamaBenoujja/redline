@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const GPU_API_URL = process.env.GPU_API_URL || 'http://localhost:8000';
 

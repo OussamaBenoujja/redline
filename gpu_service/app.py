@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
-from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler
+from diffusers import StableDiffusionXLPipeline, EulerAncestralDiscreteScheduler, FluxPipeline
 from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, BitsAndBytesConfig
 
 # Global State
@@ -18,7 +18,7 @@ models = {}
 gpu_lock = asyncio.Semaphore(1)
 
 # Env Config
-MODEL_ID_IMAGE = os.getenv("MODEL_ID_IMAGE", "stabilityai/stable-diffusion-xl-base-1.0")
+MODEL_ID_IMAGE = os.getenv("MODEL_ID_IMAGE", "black-forest-labs/FLUX.1-dev")
 LORA_ID_SILHOUETTE = "DoctorDiffusion/doctor-diffusion-s-stylized-silhouette-photography-xl-lora"
 MODEL_ID_LLM = os.getenv("MODEL_ID_LLM", "Qwen/Qwen2.5-7B-Instruct")
 
@@ -62,25 +62,35 @@ class WritingAnalyzeRequest(BaseModel):
 async def lifespan(app: FastAPI):
     print("Loading models... maximize VRAM usage!")
     
-    # 1. Load SDXL
-    print(f"Loading SDXL: {MODEL_ID_IMAGE}")
+    # 1. Load Image Model (FLUX by default)
+    print(f"Loading image model: {MODEL_ID_IMAGE}")
     try:
-        scheduler = EulerAncestralDiscreteScheduler.from_pretrained(MODEL_ID_IMAGE, subfolder="scheduler")
-        image_pipe = StableDiffusionXLPipeline.from_pretrained(
-            MODEL_ID_IMAGE,
-            torch_dtype=torch.float16,
-            scheduler=scheduler,
-            variant="fp16",
-            use_safetensors=True
-        )
+        image_model_id_lower = MODEL_ID_IMAGE.lower()
+
+        if "flux" in image_model_id_lower:
+            image_pipe = FluxPipeline.from_pretrained(
+                MODEL_ID_IMAGE,
+                torch_dtype=torch.float16,
+                use_safetensors=True
+            )
+            models["image_type"] = "flux"
+        else:
+            scheduler = EulerAncestralDiscreteScheduler.from_pretrained(MODEL_ID_IMAGE, subfolder="scheduler")
+            image_pipe = StableDiffusionXLPipeline.from_pretrained(
+                MODEL_ID_IMAGE,
+                torch_dtype=torch.float16,
+                scheduler=scheduler,
+                variant="fp16",
+                use_safetensors=True
+            )
+            print(f"Loading LoRA: {LORA_ID_SILHOUETTE}")
+            image_pipe.load_lora_weights(LORA_ID_SILHOUETTE, adapter_name="silhouette")
+            models["image_type"] = "sdxl"
+
         image_pipe.to("cuda")
-        
-        # Load LoRA
-        print(f"Loading LoRA: {LORA_ID_SILHOUETTE}")
-        image_pipe.load_lora_weights(LORA_ID_SILHOUETTE, adapter_name="silhouette")
         models["image"] = image_pipe
     except Exception as e:
-        print(f"Failed to load SDXL: {e}")
+        print(f"Failed to load image model: {e}")
         raise e
 
     # 2. Load LLM (Qwen)
@@ -199,6 +209,7 @@ async def generate_image(req: ImageGenerateRequest):
     # Concurrency Lock
     async with gpu_lock:
         print(f"Generating: {final_prompt[:100]}...")
+        image_type = models.get("image_type", "sdxl")
         
         # Deterministic Seed
         generator = None
@@ -207,6 +218,16 @@ async def generate_image(req: ImageGenerateRequest):
 
         # Run Inference (in threadpool to avoid blocking loop)
         def run_inference():
+            if image_type == "flux":
+                return models["image"](
+                    prompt=final_prompt,
+                    width=req.width,
+                    height=req.height,
+                    num_inference_steps=req.steps,
+                    guidance_scale=req.cfg,
+                    generator=generator,
+                ).images[0]
+
             return models["image"](
                 prompt=final_prompt,
                 negative_prompt=final_negative,
@@ -357,8 +378,6 @@ async def analyze_writing(req: WritingAnalyzeRequest):
                     prompt,
                     max_new_tokens=2048,
                     do_sample=False,
-                    temperature=0.1,
-                    top_p=0.9,
                     return_full_text=False
                 )
                 return outputs[0]["generated_text"]

@@ -311,6 +311,26 @@ router.get('/novels/:id/chapters', (req, res) => {
     }
 });
 
+// GET /api/novels/:id/chapters/:chapterNumber
+router.get('/novels/:id/chapters/:chapterNumber', (req, res) => {
+    const { id, chapterNumber } = req.params;
+    try {
+        const chapter = db.prepare(`
+            SELECT *
+            FROM chapters
+            WHERE novel_id = ? AND chapter_number = ?
+            LIMIT 1
+        `).get(id, Number(chapterNumber));
+
+        if (!chapter) return res.status(404).json({ error: 'Chapter not found' });
+
+        const paragraphs = db.prepare("SELECT * FROM paragraphs WHERE chapter_id = ? ORDER BY idx ASC").all(chapter.id);
+        res.json({ ...chapter, paragraphs });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // GET /api/chapters/:id/comments
 router.get('/chapters/:id/comments', (req, res) => {
     const { id } = req.params;

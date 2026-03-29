@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -11,7 +12,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 app.set('io', io);
-const PORT = 4000;
+const PORT = Number(process.env.PORT) || 4000;
 
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
