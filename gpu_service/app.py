@@ -2,6 +2,8 @@
 import os
 import torch
 import json
+import ast
+import re
 import asyncio
 import base64
 from io import BytesIO
@@ -145,6 +147,66 @@ FRAMING_PROMPTS = {
 GLOBAL_STYLE = "sli artstyle, stylized silhouette photography, infront of, vibrant cinematic colors, colorful background, vibrant colorful soft fog, distant colorful backlight, rim light outlining silhouette, minimal detail, smooth colorful gradients, low noise, moody atmospheric color lighting, no facial features, no clothing texture, simple background"
 
 GLOBAL_NEGATIVE = "black and white, monochrome, grayscale, text, watermark, logo, busy background, harsh noise, detailed face, detailed eyes, detailed skin, neon, graffiti, oversharpen, gritty film grain"
+
+def extract_model_json(raw_output: str) -> Union[Dict[str, Any], List[Any]]:
+    """Best-effort parser for model outputs that should be JSON but may include fences or python-style literals."""
+    text = raw_output or ""
+
+    # Strip markdown code fences if present.
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in text:
+        parts = text.split("```")
+        if len(parts) >= 2:
+            text = parts[1]
+
+    text = text.strip()
+
+    # Normalize smart quotes that frequently appear in LLM output.
+    replacements = {
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2018": "'",
+        "\u2019": "'",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    idx_brace = text.find("{")
+    idx_bracket = text.find("[")
+    if idx_brace == -1 and idx_bracket == -1:
+        raise ValueError("No JSON object or list found")
+
+    if idx_brace != -1 and idx_bracket != -1:
+        start_idx = min(idx_brace, idx_bracket)
+    else:
+        start_idx = idx_brace if idx_brace != -1 else idx_bracket
+
+    candidate = text[start_idx:]
+
+    # First: strict JSON parse.
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(candidate)
+        return obj
+    except Exception:
+        pass
+
+    # Try removing trailing commas and parse again.
+    relaxed_candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(relaxed_candidate)
+        return obj
+    except Exception:
+        pass
+
+    # Final fallback: python-literal parsing (handles single-quoted strings/dicts).
+    try:
+        obj = ast.literal_eval(relaxed_candidate)
+        if isinstance(obj, (dict, list)):
+            return obj
+        raise ValueError("Parsed value is not a dict/list")
+    except Exception as e:
+        raise ValueError(f"Unable to parse model output as JSON: {e}")
 
 def build_final_prompt(req: ImageGenerateRequest) -> tuple[str, str]:
     # 1. Global Style
@@ -306,38 +368,8 @@ async def direct_llm(req: LLMDirectRequest):
         
         raw_output = await asyncio.to_thread(run_llm)
 
-    # 3. Robust JSON Extraction
     try:
-        # Strip markdown code blocks if present
-        text_to_parse = raw_output
-        if "```json" in text_to_parse:
-            text_to_parse = text_to_parse.split("```json")[1].split("```")[0]
-        elif "```" in text_to_parse:
-            # Maybe just ` ``` ` without language
-            parts = text_to_parse.split("```")
-            if len(parts) >= 2:
-                text_to_parse = parts[1]
-        
-        text_to_parse = text_to_parse.strip()
-        
-        # Find the first opening brace or bracket
-        idx_brace = text_to_parse.find("{")
-        idx_bracket = text_to_parse.find("[")
-        
-        start_idx = -1
-        if idx_brace != -1 and idx_bracket != -1:
-            start_idx = min(idx_brace, idx_bracket)
-        elif idx_brace != -1:
-            start_idx = idx_brace
-        elif idx_bracket != -1:
-            start_idx = idx_bracket
-            
-        if start_idx == -1:
-            raise ValueError("No JSON object or list found (missing '{' or '[')")
-        
-        # Use raw_decode to parse just the first valid JSON
-        json_obj, _ = json.JSONDecoder().raw_decode(text_to_parse[start_idx:])
-        return json_obj
+        return extract_model_json(raw_output)
     except Exception as e:
         print(f"LLM Output Parse Error: {raw_output}")
         raise HTTPException(status_code=500, detail=f"LLM failed to return valid JSON: {str(e)}")
@@ -387,23 +419,8 @@ async def analyze_writing(req: WritingAnalyzeRequest):
 
         raw_output = await asyncio.to_thread(run_llm)
 
-    # JSON Extraction (reuse same robust logic)
     try:
-        text_to_parse = raw_output
-        if "```json" in text_to_parse:
-            text_to_parse = text_to_parse.split("```json")[1].split("```")[0]
-        elif "```" in text_to_parse:
-            parts = text_to_parse.split("```")
-            if len(parts) >= 2:
-                text_to_parse = parts[1]
-
-        text_to_parse = text_to_parse.strip()
-        idx_brace = text_to_parse.find("{")
-        if idx_brace == -1:
-            raise ValueError("No JSON object found")
-
-        json_obj, _ = json.JSONDecoder().raw_decode(text_to_parse[idx_brace:])
-        return json_obj
+        return extract_model_json(raw_output)
     except Exception as e:
         print(f"LLM Analyze Parse Error: {raw_output}")
         raise HTTPException(status_code=500, detail=f"LLM failed to return valid JSON: {str(e)}")
