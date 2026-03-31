@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BarChart, Users, Star, MessageSquare, Loader, Plus, BookOpen } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 export default function AuthorDashboard() {
   const { user } = useAuth();
@@ -14,10 +15,16 @@ export default function AuthorDashboard() {
   
   const navigate = useNavigate();
 
+  const resolveMediaUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    return `${API_BASE_URL}${url}`;
+  };
+
   useEffect(() => {
     Promise.all([
-      fetch(`http://localhost:4000/api/author/${user.id}/dashboard`).then(res => res.json()),
-      fetch(`http://localhost:4000/api/author/${user.id}/novels`).then(res => res.json())
+      fetch(`${API_BASE_URL}/api/author/${user.id}/dashboard`).then(res => res.json()),
+      fetch(`${API_BASE_URL}/api/author/${user.id}/novels`).then(res => res.json())
     ]).then(([aggData, novelsData]) => {
       setAggregates({
         reads: aggData.reads || 0,
@@ -35,7 +42,7 @@ export default function AuthorDashboard() {
   const handleCreateWorkspace = async () => {
     setCreating(true);
     try {
-      const res = await fetch('http://localhost:4000/api/novels', {
+      const res = await fetch(`${API_BASE_URL}/api/novels`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ title: 'Untitled Workspace', authorName: user.full_name })
@@ -106,7 +113,7 @@ export default function AuthorDashboard() {
                 <div key={n.id} className="glass" style={{ padding: '1.5rem', borderRadius: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <div style={{ width: '48px', height: '64px', borderRadius: '4px', background: 'var(--bg-secondary)', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          {n.cover_url ? <img src={n.cover_url} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <BookOpen size={24} color="var(--text-secondary)"/>}
+                          {(n.cover_photo || n.cover_url) ? <img src={resolveMediaUrl(n.cover_photo || n.cover_url)} alt="Cover" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <BookOpen size={24} color="var(--text-secondary)"/>}
                       </div>
                       <div>
                          <h3 style={{fontSize: '1.2rem', marginBottom: '0.25rem'}}>{n.title}</h3>

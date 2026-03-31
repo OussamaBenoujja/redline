@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import NovelCard from '../components/NovelCard';
 import { Search, Filter, SlidersHorizontal, Loader } from 'lucide-react';
+import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 export default function Home() {
+  const { user } = useAuth();
   const [novels, setNovels] = useState([]);
+  const [continueReading, setContinueReading] = useState([]);
   const [loading, setLoading] = useState(true);
   
   const [search, setSearch] = useState('');
@@ -12,17 +16,35 @@ export default function Home() {
   const [sortBy, setSortBy] = useState('popular'); // popular, rating
 
   useEffect(() => {
-    fetch('http://localhost:4000/api/novels')
-      .then(res => res.json())
-      .then(data => {
-        setNovels(data);
+    const novelsReq = fetch(`${API_BASE_URL}/api/novels`).then(res => res.json());
+    const historyReq = user?.id
+      ? fetch(`${API_BASE_URL}/api/users/${user.id}/profile`).then(res => res.json())
+      : Promise.resolve(null);
+
+    Promise.all([novelsReq, historyReq])
+      .then(([novelsData, profileData]) => {
+        setNovels(novelsData || []);
+
+        const historyItems = Array.isArray(profileData?.historyList)
+          ? profileData.historyList
+          : [];
+
+        const dedupedHistory = [];
+        const seen = new Set();
+        for (const item of historyItems) {
+          if (!item?.id || seen.has(item.id)) continue;
+          seen.add(item.id);
+          dedupedHistory.push(item);
+        }
+
+        setContinueReading(dedupedHistory.slice(0, 4));
         setLoading(false);
       })
       .catch(err => {
         console.error("Failed to fetch novels", err);
         setLoading(false);
       });
-  }, []);
+  }, [user?.id]);
 
   if (loading) {
     return (
@@ -49,7 +71,39 @@ export default function Home() {
     return 0;
   });
 
+  const isFilteringActive =
+    search.trim().length > 0 ||
+    genreFilter !== 'All' ||
+    statusFilter !== 'All';
+
+  const topRatedNovels = [...novels]
+    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+    .slice(0, 4);
+
+  const completedPicks = novels
+    .filter((n) => n.status === 'Completed')
+    .sort((a, b) => (b.reads || 0) - (a.reads || 0))
+    .slice(0, 4);
+
+  const ongoingNow = novels
+    .filter((n) => n.status === 'Ongoing')
+    .sort((a, b) => (b.reads || 0) - (a.reads || 0))
+    .slice(0, 4);
+
   const genres = ['All', ...new Set(novels.map(n => n.genre).filter(Boolean))];
+
+  const renderShelf = (title, items, keyPrefix) => (
+    <section className="shelf-section" key={keyPrefix}>
+      <div className="shelf-header">
+        <h3 className="shelf-title">{title}</h3>
+      </div>
+      <div className="novel-grid">
+        {items.map((novel) => (
+          <NovelCard key={`${keyPrefix}-${novel.id}`} novel={novel} />
+        ))}
+      </div>
+    </section>
+  );
 
   return (
     <div className="home-page animate-fade-in">
@@ -113,6 +167,15 @@ export default function Home() {
             <p>No novels found matching your filters.</p>
             <button className="btn-secondary" onClick={() => {setSearch(''); setGenreFilter('All'); setStatusFilter('All');}} style={{marginTop: '1rem'}}>Clear Filters</button>
           </div>
+        )}
+
+        {!isFilteringActive && (
+          <>
+            {continueReading.length > 0 && renderShelf('Start From Where You Left Off', continueReading, 'continue-reading')}
+            {renderShelf('Top Rated', topRatedNovels, 'top-rated')}
+            {renderShelf('Completed Picks', completedPicks, 'completed-picks')}
+            {renderShelf('Ongoing Now', ongoingNow, 'ongoing-now')}
+          </>
         )}
       </section>
     </div>

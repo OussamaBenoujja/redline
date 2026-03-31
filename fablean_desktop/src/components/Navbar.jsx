@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Moon, Sun, BookOpen, Library, User, Flame, Coins, Bell, PenTool } from 'lucide-react';
 import { useAuth } from '../AuthContext';
 import { io } from 'socket.io-client';
+import { API_BASE_URL, SOCKET_URL } from '../config/api';
 
 export default function Navbar({ isDarkMode, toggleTheme }) {
   const { user } = useAuth();
@@ -13,21 +14,28 @@ export default function Navbar({ isDarkMode, toggleTheme }) {
   useEffect(() => {
     if (!user?.id) return;
 
-    fetch(`http://localhost:4000/api/users/${user.id}/profile`)
+    const fetchNotifications = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/users/${user.id}/notifications`);
+        const data = await res.json();
+        setNotifs(data || []);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+
+    fetch(`${API_BASE_URL}/api/users/${user.id}/profile`)
       .then(res => res.json())
       .catch(console.error);
 
-    fetch(`http://localhost:4000/api/users/${user.id}/notifications`)
-      .then(res => res.json())
-      .then(data => setNotifs(data || []))
-      .catch(console.error);
+    fetchNotifications();
 
     // Native Socket.io Bindings
-    const socket = io('http://localhost:4000');
+    const socket = io(SOCKET_URL);
     socket.emit('join_user_room', user.id);
 
-    socket.on('new_notification', (notif) => {
-        setNotifs(prev => [{...notif, is_read: 0, created_at: new Date().toISOString()}, ...prev]);
+    socket.on('new_notification', async (_notif) => {
+        await fetchNotifications();
     });
 
     return () => {
@@ -37,17 +45,26 @@ export default function Navbar({ isDarkMode, toggleTheme }) {
 
   const unreadNotifs = notifs.filter(n => !n.is_read).length;
 
+  const resolveNotificationTarget = (notif) => {
+    if (notif?.target_url) return notif.target_url;
+    if (notif?.type === 'new_follower') return '/profile';
+    if (notif?.type === 'new_novel') return '/';
+    if (notif?.type === 'new_chapter') return '/';
+    return '/';
+  };
+
   const handleNotifClick = async (notifId) => {
     setShowNotifs(false);
+    if (!notifId) return;
     try {
-      await fetch(`http://localhost:4000/api/notifications/${notifId}/read`, { method: 'PUT' });
+      await fetch(`${API_BASE_URL}/api/notifications/${notifId}/read`, { method: 'PUT' });
       setNotifs(prev => prev.map(n => n.id === notifId ? { ...n, is_read: 1 } : n));
     } catch(e) { console.error(e); }
   };
 
   const handleMarkAllRead = async () => {
     try {
-      await fetch(`http://localhost:4000/api/users/${user.id}/notifications/read`, { method: 'PUT' });
+      await fetch(`${API_BASE_URL}/api/users/${user.id}/notifications/read`, { method: 'PUT' });
       setNotifs(prev => prev.map(n => ({ ...n, is_read: 1 })));
     } catch(e) { console.error(e); }
   };
@@ -88,7 +105,7 @@ export default function Navbar({ isDarkMode, toggleTheme }) {
                 <div style={{ maxHeight: '350px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                   {notifs.length === 0 ? <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', textAlign: 'center', margin: '1rem 0' }}>No notifications yet.</p> : 
                     notifs.map(n => (
-                      <Link to={n.target_url} key={n.id} onClick={() => handleNotifClick(n.id)} style={{ display: 'block', padding: '0.75rem', borderRadius: '6px', background: n.is_read ? 'transparent' : 'rgba(29, 185, 84, 0.1)', borderLeft: n.is_read ? '3px solid transparent' : '3px solid var(--accent-primary)', textDecoration: 'none', color: 'var(--text-primary)', transition: 'var(--transition)' }} className="notif-item">
+                      <Link to={resolveNotificationTarget(n)} key={n.id || `${n.type}-${n.created_at}-${n.message}`} onClick={() => handleNotifClick(n.id)} style={{ display: 'block', padding: '0.75rem', borderRadius: '6px', background: n.is_read ? 'transparent' : 'rgba(29, 185, 84, 0.1)', borderLeft: n.is_read ? '3px solid transparent' : '3px solid var(--accent-primary)', textDecoration: 'none', color: 'var(--text-primary)', transition: 'var(--transition)' }} className="notif-item">
                         <p style={{ fontSize: '0.9rem', margin: 0, lineHeight: '1.4' }}>{n.message}</p>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.25rem', display: 'block' }}>{new Date(n.created_at).toLocaleString()}</span>
                       </Link>

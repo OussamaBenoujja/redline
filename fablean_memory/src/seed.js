@@ -1,168 +1,298 @@
 const db = require('./db');
 const crypto = require('crypto');
 
-const NOVELS = [
-    {
-        id: 'n1', title: 'Echoes of Blackwood', author_name: 'Lana Mourad', genre: 'Mystery', status: 'Ongoing', featured: 1, rating: 4.8, reads: 128340, chapters_count: 28, synopsis: 'A memory detective decodes haunted alleys where every clue rewrites the past.', tags: JSON.stringify(['Noir', 'Urban', 'Secrets']), cover_url: 'https://picsum.photos/seed/blackwood/480/720', cover_photo: null
-    },
-    {
-        id: 'n2', title: 'Glass Crown Rebellion', author_name: 'Mina Selim', genre: 'Fantasy', status: 'Completed', featured: 1, rating: 4.9, reads: 301103, chapters_count: 54, synopsis: 'A street thief steals the monarch\'s source of magic—a glass crown.', tags: JSON.stringify(['Epic', 'Politics', 'Magic']), cover_url: 'https://picsum.photos/seed/glasscrown/480/720', cover_photo: null
-    },
-    {
-        id: 'n3', title: 'Neon Lotus Terminal', author_name: 'Rami Idris', genre: 'Sci-Fi', status: 'Ongoing', featured: 0, rating: 4.7, reads: 219450, chapters_count: 17, synopsis: 'An AI wakes up with memories of a murdered human.', tags: JSON.stringify(['Cyberpunk', 'AI', 'Thriller']), cover_url: 'https://picsum.photos/seed/neonlotus/480/720', cover_photo: null
-    },
-    {
-        id: 'n4', title: 'Letters to a Drowned City', author_name: 'Nora Kazem', genre: 'Drama', status: 'Completed', featured: 0, rating: 4.6, reads: 88770, chapters_count: 31, synopsis: 'Romance blossoms through letters delivered by the deep sea currents.', tags: JSON.stringify(['Romance', 'Literary', 'Emotional']), cover_url: 'https://picsum.photos/seed/drownedcity/480/720', cover_photo: null
-    },
-    {
-        id: 'n5', title: 'The Alchemist of Hollow Street', author_name: 'Fablean Demo Reader', genre: 'Fantasy', status: 'Ongoing', featured: 0, rating: 4.4, reads: 17720, chapters_count: 9, synopsis: 'A fledgling alchemist discovers that turning lead to gold has an unfortunate side effect: turning the soul to ash.', tags: JSON.stringify(['My Novel', 'Alchemy', 'Dark Fantasy']), cover_url: 'https://picsum.photos/seed/hollowstreet/480/720', cover_photo: null
-    }
+const AUTHORS = [
+    'Lana Mourad',
+    'Mina Selim',
+    'Rami Idris',
+    'Nora Kazem',
+    'Youssef Haleem',
+    'Dina Farouk',
+    'Sami Rahal',
+    'Aya Khoury',
+    'Karim Beltagi',
+    'Leila Haddad',
 ];
 
-function seed() {
-    console.log("Seeding database...");
+const READER_NAMES = [
+    'Fablean Demo Reader',
+    'Nadia Alwan',
+    'Omar Nabil',
+    'Sara Ezzat',
+    'Tariq Mostafa',
+    'Mariam Fawzy',
+    'Ziad Ashraf',
+    'Hana Younes',
+];
 
-    // 1. Clear Data
-    db.exec(`DELETE FROM character_looks`);
-    db.exec(`DELETE FROM characters`);
-    db.exec(`DELETE FROM generated_images`);
-    db.exec(`DELETE FROM paragraphs`);
-    db.exec(`DELETE FROM chapters`);
-    db.exec(`DELETE FROM reading_progress`);
-    db.exec(`DELETE FROM comments`);
-    db.exec(`DELETE FROM reviews`);
-    db.exec(`DELETE FROM notifications`);
-    db.exec(`DELETE FROM novels`);
-    db.exec(`DELETE FROM users`);
-    db.exec(`DELETE FROM sqlite_sequence`); // Reset auto-increment
+const NOVEL_BLUEPRINTS = [
+    { title: 'Clockwork Rain on Atlas Street', genre: 'Sci-Fi', mood: 'electric', place: 'a floating market of copper bridges', core: 'a map that predicts memories before they happen', tags: ['Cyberpunk', 'Mystery', 'Urban'] },
+    { title: 'The Foxglove Cartographer', genre: 'Fantasy', mood: 'enchanted', place: 'a forest that redraws itself each dawn', core: 'an atlas inked with living roots', tags: ['Magic', 'Adventure', 'Myth'] },
+    { title: 'A Choir of Salt and Iron', genre: 'Drama', mood: 'tender', place: 'a storm-bent harbor town', core: 'songs hidden in rusted ship bells', tags: ['Emotional', 'Family', 'Literary'] },
+    { title: 'Sunset Protocol 77', genre: 'Thriller', mood: 'tense', place: 'a desert relay station at the edge of signal range', core: 'a shutdown code everyone wants erased', tags: ['Conspiracy', 'Action', 'Suspense'] },
+    { title: 'Velvet Siege of Moon Harbor', genre: 'Fantasy', mood: 'opulent', place: 'a moonlit port ruled by masked guilds', core: 'a treaty signed with stolen starlight', tags: ['Politics', 'Romance', 'Epic'] },
+    { title: 'The Last Lantern in Marrow Lane', genre: 'Mystery', mood: 'haunting', place: 'an alley where shadows keep ledgers', core: 'a lamp that reveals forgotten witnesses', tags: ['Noir', 'Secrets', 'Detective'] },
+    { title: 'Bluebird Engine', genre: 'Sci-Fi', mood: 'restless', place: 'an orbital rail circling a silent planet', core: 'an engine powered by lullabies', tags: ['Space', 'AI', 'Adventure'] },
+    { title: 'Honeyglass Dynasty', genre: 'Fantasy', mood: 'regal', place: 'a capital built inside amber cliffs', core: 'a throne carved from fossilized storms', tags: ['Court', 'Magic', 'Legacy'] },
+    { title: 'Neon Prayer at District Nine', genre: 'Thriller', mood: 'sharp', place: 'a city quarter lit by counterfeit dawn', core: 'a prayer app that predicts crimes', tags: ['Tech', 'Crime', 'Dark'] },
+    { title: 'When Rivers Learn to Burn', genre: 'Drama', mood: 'lyrical', place: 'a farming valley beneath volcanic skies', core: 'a pact between riverkeepers and fire monks', tags: ['Nature', 'Conflict', 'Hope'] },
+    { title: 'The Orchard of Hollow Suns', genre: 'Fantasy', mood: 'dreamlike', place: 'a village under three fading suns', core: 'fruit that stores yesterday\'s voices', tags: ['Folklore', 'Wonder', 'Quest'] },
+    { title: 'Paper Crown, Steel Heart', genre: 'Romance', mood: 'warm', place: 'a revolution-era print shop', core: 'love letters smuggled in newspaper margins', tags: ['Romance', 'Historical', 'Slow Burn'] },
+    { title: 'Nightshift at Aurora Terminal', genre: 'Sci-Fi', mood: 'melancholic', place: 'an interstellar train station with no daylight', core: 'tickets that lead to impossible timelines', tags: ['Time', 'Space', 'Character'] },
+    { title: 'The Basilisk Auditor', genre: 'Fantasy', mood: 'wry', place: 'a dragon bank beneath old catacombs', core: 'a ledger that bites when lies are written', tags: ['Humor', 'Magic', 'Heist'] },
+    { title: 'Cinder Atlas', genre: 'Adventure', mood: 'gritty', place: 'a post-war archipelago of black sand', core: 'coordinates etched into volcanic glass', tags: ['Journey', 'Survival', 'Maps'] },
+    { title: 'Midnight Cinema for Lost Saints', genre: 'Drama', mood: 'bittersweet', place: 'a one-screen theater that appears once a month', core: 'films made from real memories', tags: ['Magical Realism', 'Healing', 'Community'] },
+    { title: 'Thirteen Doors Under Vanta Pier', genre: 'Mystery', mood: 'ominous', place: 'a flooded boardwalk beneath an old pier', core: 'doors that open to erased neighborhoods', tags: ['Horror', 'Urban', 'Puzzle'] },
+    { title: 'The Sparrow General', genre: 'Fantasy', mood: 'heroic', place: 'a mountain republic at war with winter', core: 'an army trained by messenger birds', tags: ['War', 'Courage', 'Legend'] },
+    { title: 'Low Tide Republic', genre: 'Political', mood: 'urgent', place: 'a city-state built on moving docks', core: 'votes cast with tides instead of paper', tags: ['Politics', 'Society', 'Satire'] },
+    { title: 'Ghostlight Over Cedar Run', genre: 'Mystery', mood: 'quiet', place: 'a railway town abandoned by schedules', core: 'a station lamp that signals missing trains', tags: ['Small Town', 'Paranormal', 'Investigation'] },
+    { title: 'The Mercury Seamstress', genre: 'Fantasy', mood: 'elegant', place: 'a couture house above alchemical sewers', core: 'dresses stitched from liquid metal', tags: ['Fashion', 'Alchemy', 'Drama'] },
+    { title: 'Brassheart Kindergarten', genre: 'Sci-Fi', mood: 'hopeful', place: 'a school for children with mechanical implants', core: 'toys that remember future birthdays', tags: ['Family', 'Future', 'Wholesome'] },
+    { title: 'Stormglass Witness', genre: 'Thriller', mood: 'stormy', place: 'a lighthouse district on a knife-edge coast', core: 'a testimony hidden in lightning rods', tags: ['Coastal', 'Pursuit', 'Mystery'] },
+    { title: 'The Republic of Wild Ink', genre: 'Fantasy', mood: 'rebellious', place: 'a city where tattoos are legal contracts', core: 'an ink recipe outlawed for a century', tags: ['Rebellion', 'Body Magic', 'Law'] },
+    { title: 'Copper Wolves of East Meridian', genre: 'Adventure', mood: 'bold', place: 'a railway frontier of steel canyons', core: 'a freight train carrying a sleeping machine god', tags: ['Western', 'Steampunk', 'Quest'] },
+    { title: 'Afterlight Garden', genre: 'Romance', mood: 'soft', place: 'a botanical conservatory powered by moon mirrors', core: 'flowers that bloom for true confessions', tags: ['Romance', 'Atmospheric', 'Healing'] },
+    { title: 'Static in the Temple Wires', genre: 'Sci-Fi', mood: 'mystic', place: 'an ancient temple wired into a data grid', core: 'an oracle running on broken firmware', tags: ['Techno-Myth', 'Faith', 'AI'] },
+    { title: 'The Mapmaker\'s Quiet Revolt', genre: 'Drama', mood: 'resolute', place: 'an occupied capital with censored streets', core: 'secret maps sewn into coats', tags: ['Resistance', 'Identity', 'Spy'] },
+    { title: 'Ivory Harbor After the Flood', genre: 'Literary', mood: 'reflective', place: 'a rebuilt city of suspended walkways', core: 'a registry of homes lost to water', tags: ['Recovery', 'Memory', 'Humanity'] },
+    { title: 'The Kindling Parliament', genre: 'Fantasy', mood: 'fiery', place: 'a senate hall warmed by captive comets', core: 'a motion that could ignite the sky', tags: ['Politics', 'Magic', 'High Stakes'] },
+];
 
-    // 2. Insert Users
+const CHAPTER_HOOKS = [
+    'First Signal',
+    'Hidden Ledger',
+    'Ash and Oath',
+    'Velvet Ambush',
+    'Borrowed Dawn',
+    'A Door Remembers',
+    'The Quiet Coup',
+    'Thread of Thunder',
+    'Glassfoot Parade',
+    'After the Bell',
+    'Names in the Rain',
+    'The Third Key',
+];
+
+function paragraphId(chapterId, idx, text) {
+    return crypto
+        .createHash('md5')
+        .update(`${chapterId}-${idx}-${text.slice(0, 64)}`)
+        .digest('hex');
+}
+
+function buildChapterText(novel, chapterNumber) {
+    const beat = CHAPTER_HOOKS[(chapterNumber + novel.title.length) % CHAPTER_HOOKS.length];
+    const para1 = `Chapter ${chapterNumber} opens in ${novel.place}, where the air feels ${novel.mood} and every rumor points to ${novel.core}. The protagonist learns that timing matters more than strength, and missing one hour could cost the city a decade.`;
+    const para2 = `At the center of ${beat}, allies disagree on method but not on purpose. One wants caution, one wants speed, and one wants to burn the old rules. Their argument spills into the streets, pulling strangers into a cause they barely understand.`;
+    const para3 = `By the end, a small victory reveals a larger trap. A signature is forged, a promise is made, and a witness vanishes with the final clue. The chapter closes with a choice: protect the people now, or risk everything for the truth tomorrow.`;
+    return `${para1}\n\n${para2}\n\n${para3}`;
+}
+
+async function clearAllTables() {
+    const tables = [
+        'character_looks',
+        'characters',
+        'generated_images',
+        'paragraphs',
+        'scenes',
+        'chapters',
+        'reading_progress',
+        'comment_votes',
+        'comment_replies',
+        'comments',
+        'reviews',
+        'notifications',
+        'author_followers',
+        'novels',
+        'users',
+    ];
+
+    await db.transaction(async (tx) => {
+        for (const tableName of tables) {
+            await tx.exec(`TRUNCATE TABLE ${tableName} RESTART IDENTITY CASCADE`);
+        }
+    });
+
+    console.log(`Cleared tables (${tables.length}).`);
+}
+
+async function seed() {
+    console.log('Seeding database with rich demo data...');
+
+    await clearAllTables();
+
     const insertUser = db.prepare(`
         INSERT INTO users (email, password_hash, full_name, bio, avatar_url, banner_url, followers_count, streak_days, coins, badges)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    insertUser.run('lana@fablean.app', 'hash', 'Lana Mourad', 'Mystery author', '', '', 100, 12, 450, JSON.stringify(['Author']));
-    insertUser.run('rami@fablean.app', 'hash', 'Rami Idris', 'Sci Fi author', '', '', 400, 5, 120, JSON.stringify(['Author']));
-    const demoUserId = insertUser.run(
-        'demo@fablean.app', 'hash', 'Fablean Demo Reader', 
-        'Fantasy addict, late-night worldbuilder...', 
-        'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=320&q=80', 
-        'https://images.unsplash.com/photo-1512820790803-83ca734da794?auto=format&fit=crop&w=1400&q=80', 
-        142,
-        34, /* streak */
-        1250, /* coins */
-        JSON.stringify(['Early Adopter', 'Avid Reader', 'Top Commenter'])
-    ).lastInsertRowid;
-    console.log(`Inserted Demo User (${demoUserId})`);
+    const allUserNames = [...AUTHORS, ...READER_NAMES];
+    const userIdsByName = new Map();
 
-    // 3. Insert Novels
+    for (let i = 0; i < allUserNames.length; i += 1) {
+        const fullName = allUserNames[i];
+        const slug = fullName.toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '');
+        const isAuthor = AUTHORS.includes(fullName);
+        const bio = isAuthor
+            ? `${fullName} writes cinematic ${i % 2 === 0 ? 'speculative' : 'character-driven'} fiction for late-night readers.`
+            : `${fullName} is a curious reader who bookmarks cliffhangers and leaves thoughtful comments.`;
+        const result = await insertUser.run(
+            `${slug}@fablean.app`,
+            'hash',
+            fullName,
+            bio,
+            `https://i.pravatar.cc/320?img=${(i % 70) + 1}`,
+            `https://picsum.photos/seed/banner-${slug}/1400/420`,
+            isAuthor ? 20 + i * 3 : 3 + i,
+            2 + (i % 17),
+            120 + i * 35,
+            JSON.stringify(isAuthor ? ['Author', 'Creator'] : ['Reader'])
+        );
+        userIdsByName.set(fullName, Number(result.lastInsertRowid));
+    }
+
     const insertNovel = db.prepare(`
         INSERT INTO novels (id, title, author_name, genre, status, featured, rating, reads, chapters_count, tags, synopsis, cover_url, cover_photo)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-
-    NOVELS.forEach(n => insertNovel.run(n.id, n.title, n.author_name, n.genre, n.status, n.featured, n.rating, n.reads, n.chapters_count, n.tags, n.synopsis, n.cover_url, n.cover_photo));
-    console.log(`Inserted ${NOVELS.length} Novels.`);
-
-    const novel1Id = 'n1';
-
-    // 4. Insert Reading Progress
-    const insertProgress = db.prepare(`
-        INSERT INTO reading_progress (user_id, novel_id, progress, bookmark_idx, offline_downloaded) VALUES (?, ?, ?, ?, ?)
-    `);
-    // demoUser has read to chapter 1, paragraph index 3 in n1, safely downloaded
-    insertProgress.run(demoUserId, 'n1', 0.42, 3, 1);
-    insertProgress.run(demoUserId, 'n2', 0.9, 0, 0);
-
-    // 5. Insert Characters for novel n1
-    const insertChar = db.prepare(`
-        INSERT INTO characters (novel_id, name, aliases, importance, base_description, visual_tags)
-        VALUES (?, ?, ?, ?, ?, ?)
-    `);
-
-    const silasId = insertChar.run(
-        novel1Id, "Detective Silas Vane", JSON.stringify(["Silas", "Detective Vane", "Vane"]), "MAIN",
-        "tall, slender, noir detective silhouette, mysterious",
-        JSON.stringify(["noir", "detective", "victorian", "silhouette", "foggy"])
-    ).lastInsertRowid;
-
-    const maskId = insertChar.run(
-        novel1Id, "The Masked Figure", JSON.stringify(["Masked Figure", "figure", "masked man", "porcelain mask"]), "SECONDARY",
-        "tall, impossibly slender silhouette, eerie",
-        JSON.stringify(["mysterious", "ominous", "tall", "shadowy"])
-    ).lastInsertRowid;
-
-    // 6. Insert Looks
-    const insertLook = db.prepare(`
-        INSERT INTO character_looks (character_id, chapter_from, chapter_to, outfit, silhouette_notes, must_keep, avoid)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    insertLook.run(silasId, 1, 12, "long dark trench coat, fedora hat", "coat hem below knees, structured shoulders, hands near coat pockets", JSON.stringify(["long trench coat", "fedora"]), JSON.stringify(["hoodie", "short jacket", "modern sneakers", "t-shirt"]));
-    insertLook.run(maskId, 1, 90, "dark cloak, porcelain mask hinted in rim light", "cloak merges with shadows, narrow shoulders, elongated outline", JSON.stringify(["dark cloak silhouette", "tall slender outline"]), JSON.stringify(["bright colors", "modern clothing"]));
-
-    // 7. Insert Chapter
     const insertChapter = db.prepare(`
         INSERT INTO chapters (novel_id, title, chapter_number, full_text)
         VALUES (?, ?, ?, ?)
     `);
-
-    const chapterText = `
-The fog hung heavy over the cobblestone streets of Old London, a thick, suffocating blanket that dampened sound and obscured vision. Detective Silas Vane adjusted the collar of his trench coat, the damp air seeping into his bones. He wasn't supposed to be here, not tonight. But the letter had been specific.
-
-'Midnight. The Blackwood Alley. Come alone.'
-
-Silas checked his pocket watch. 11:58 PM. The ticking of the mechanism felt loud in the oppressive silence. He stepped into the alley, his boots splashing in a shallow puddle. A single gas lamp flickered at the far end, casting long, dancing shadows that seemed to claw at the brick walls.
-
-Suddenly, a figure emerged from the gloom. Tall, slender, wrapped in a dark cloak that seemed to merge with the shadows. Silas's hand drifted to his revolver.
-
-'You came,' a voice whispered, smooth as velvet but cold as ice.
-
-'I don't leave loose ends,' Silas replied, his voice gritty. 'Who are you?'
-
-The figure stepped closer, the gaslight catching the rim of a porcelain mask. 'I am the one who knows what you did in Calcutta, Silas.'
-    `.trim();
-
-    const chapterId = insertChapter.run(novel1Id, "Blackwood Alley", 1, chapterText).lastInsertRowid;
-    console.log(`Inserted Chapter: Blackwood Alley (${chapterId})`);
-
-    // 8. Split Paragraphs
-    const paras = chapterText.split(/\\n\\s*\\n/).map(p => p.trim()).filter(p => p.length > 0);
-    const insertPara = db.prepare(`
+    const insertParagraph = db.prepare(`
         INSERT INTO paragraphs (id, chapter_id, idx, text)
         VALUES (?, ?, ?, ?)
     `);
-    const insertImage = db.prepare(`
-        INSERT INTO generated_images (novel_id, chapter_number, paragraph_id, image_path)
-        VALUES (?, ?, ?, ?)
+    const insertReview = db.prepare(`
+        INSERT INTO reviews (user_id, novel_id, rating, text, likes)
+        VALUES (?, ?, ?, ?, ?)
+    `);
+    const insertProgress = db.prepare(`
+        INSERT INTO reading_progress (user_id, novel_id, progress, bookmark_idx, offline_downloaded, is_favorite)
+        VALUES (?, ?, ?, ?, ?, ?)
+        RETURNING user_id
+    `);
+    const insertComment = db.prepare(`
+        INSERT INTO comments (user_id, novel_id, chapter_id, paragraph_idx, text, likes)
+        VALUES (?, ?, ?, ?, ?, ?)
     `);
 
-    paras.forEach((text, i) => {
-        const hash = crypto.createHash('md5').update(`${chapterId}-${i}-${text.substring(0, 20)}`).digest('hex');
-        insertPara.run(hash, chapterId, i, text);
+    const readerIds = READER_NAMES.map((name) => userIdsByName.get(name)).filter(Boolean);
 
-        // Dummy insert for generated_images if it's the first paragraph
-        if (i === 0) {
-            insertImage.run(novel1Id, 1, hash, `/images/${novel1Id}/ch1_p${i}.png`);
+    let totalChapters = 0;
+    let totalParagraphs = 0;
+
+    for (let i = 0; i < NOVEL_BLUEPRINTS.length; i += 1) {
+        const blueprint = NOVEL_BLUEPRINTS[i];
+        const novelId = `n_seed_${String(i + 1).padStart(2, '0')}`;
+        const authorName = AUTHORS[i % AUTHORS.length];
+        const chapterCount = 2 + (i % 3); // 2 to 4 chapters per novel
+        const featured = i < 8 ? 1 : 0;
+        const status = i % 4 === 0 ? 'Completed' : 'Ongoing';
+        const synopsis = `${blueprint.title} follows unlikely allies in ${blueprint.place}, chasing ${blueprint.core} while every chapter raises the stakes.`;
+
+        await insertNovel.run(
+            novelId,
+            blueprint.title,
+            authorName,
+            blueprint.genre,
+            status,
+            featured,
+            0,
+            0,
+            chapterCount,
+            JSON.stringify(blueprint.tags),
+            synopsis,
+            `https://picsum.photos/seed/fablean-cover-${String(i + 1).padStart(2, '0')}/480/720`,
+            null
+        );
+
+        for (let chapterNumber = 1; chapterNumber <= chapterCount; chapterNumber += 1) {
+            const chapterTitle = `${CHAPTER_HOOKS[(i + chapterNumber) % CHAPTER_HOOKS.length]} - Part ${chapterNumber}`;
+            const chapterText = buildChapterText(blueprint, chapterNumber);
+            const chapterRes = await insertChapter.run(novelId, chapterTitle, chapterNumber, chapterText);
+            const chapterId = Number(chapterRes.lastInsertRowid);
+
+            const paragraphs = chapterText
+                .split(/\n\s*\n/)
+                .map((p) => p.trim())
+                .filter(Boolean);
+
+            for (let pIdx = 0; pIdx < paragraphs.length; pIdx += 1) {
+                const text = paragraphs[pIdx];
+                await insertParagraph.run(paragraphId(chapterId, pIdx, text), chapterId, pIdx, text);
+                totalParagraphs += 1;
+            }
+
+            if (chapterNumber === 1) {
+                const commenterId = readerIds[i % readerIds.length];
+                await insertComment.run(
+                    commenterId,
+                    novelId,
+                    chapterId,
+                    0,
+                    `The opening of ${blueprint.title} is sharp and atmospheric. Hooked already.`,
+                    2 + (i % 9)
+                );
+            }
+
+            totalChapters += 1;
         }
-    });
 
-    console.log(`Inserted ${paras.length} Paragraphs.`);
+        const reviewAUser = readerIds[i % readerIds.length];
+        const reviewBUser = readerIds[(i + 3) % readerIds.length];
+        const ratingA = Number((4.1 + ((i % 8) * 0.1)).toFixed(1));
+        const ratingB = Number((4.0 + (((i + 2) % 7) * 0.1)).toFixed(1));
 
-    // 9. Community & Social Data
-    const insertComment = db.prepare(`INSERT INTO comments (user_id, novel_id, chapter_id, paragraph_idx, text, likes) VALUES (?, ?, ?, ?, ?, ?)`);
-    insertComment.run(demoUserId, novel1Id, chapterId, 0, "Wow, setting the mood immediately! Love this opening.", 24);
-    insertComment.run(demoUserId, novel1Id, chapterId, 4, "Is he holding the silver pocket watch from the prequel?", 12);
-    
-    const insertReview = db.prepare(`INSERT INTO reviews (user_id, novel_id, rating, text, likes) VALUES (?, ?, ?, ?, ?)`);
-    insertReview.run(demoUserId, novel1Id, 5.0, "An absolute masterpiece of noir suspense. The AI visuals make every scene come alive.", 156);
+        await insertReview.run(
+            reviewAUser,
+            novelId,
+            ratingA,
+            `Cinematic pacing and great chapter endings. ${blueprint.title} keeps the pressure high without losing heart.`,
+            4 + (i % 11)
+        );
+        await insertReview.run(
+            reviewBUser,
+            novelId,
+            ratingB,
+            `Loved the worldbuilding in ${blueprint.place}. The central mystery around ${blueprint.core} feels fresh.`,
+            1 + (i % 6)
+        );
 
-    const insertNotification = db.prepare(`INSERT INTO notifications (user_id, type, message, is_read, target_url) VALUES (?, ?, ?, ?, ?)`);
-    insertNotification.run(demoUserId, "STREAK_BONUS", "You hit a 30-day streak! +500 Coins awarded.", 0, "/profile");
-    insertNotification.run(demoUserId, "NEW_CHAPTER", "Lana Mourad just published Chapter 29 of Echoes of Blackwood!", 1, "/novel/n1");
+        const progressUsers = [
+            readerIds[i % readerIds.length],
+            readerIds[(i + 1) % readerIds.length],
+            readerIds[(i + 2) % readerIds.length],
+        ];
 
-    console.log("Seeding Complete.");
+        for (let p = 0; p < progressUsers.length; p += 1) {
+            const readerId = progressUsers[p];
+            const progress = Math.min(0.95, 0.22 + (p * 0.24) + ((i % 5) * 0.07));
+            const bookmark = Math.max(1, Math.min(chapterCount, Math.ceil(progress * chapterCount)));
+            await insertProgress.run(
+                readerId,
+                novelId,
+                Number(progress.toFixed(2)),
+                bookmark,
+                p % 2,
+                i % 6 === 0 && p === 0 ? 1 : 0
+            );
+        }
+    }
+
+    console.log(`Inserted users: ${allUserNames.length}`);
+    console.log(`Inserted novels: ${NOVEL_BLUEPRINTS.length}`);
+    console.log(`Inserted chapters: ${totalChapters}`);
+    console.log(`Inserted paragraphs: ${totalParagraphs}`);
+    console.log('Seeding complete.');
 }
 
-seed();
+db.initSchema()
+    .then(() => seed())
+    .catch((err) => {
+        console.error('Seed failed:', err);
+        process.exit(1);
+    })
+    .finally(async () => {
+        await db.pool.end();
+    });

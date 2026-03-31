@@ -1,19 +1,76 @@
 import React, { useState, useEffect } from 'react';
 import { Settings, BookOpen, Clock, Heart, Loader, X, Save } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import NovelCard from '../components/NovelCard';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 export default function Profile() {
   const { user, updateProfileContext } = useAuth();
   const [activeTab, setActiveTab] = useState('history'); // history, library, created
   const [userProfile, setUserProfile] = useState(null);
   const [myWorks, setMyWorks] = useState([]);
+  const [followedAuthors, setFollowedAuthors] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Edit Modal State
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', bio: '', avatar_url: '', banner_url: '' });
   const [saving, setSaving] = useState(false);
+
+  const resolveMediaUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    return `${API_BASE_URL}${url}`;
+  };
+
+  const getInitials = (name) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return 'U';
+    return parts.slice(0, 2).map((p) => p[0].toUpperCase()).join('');
+  };
+
+  const toneBySeed = (seed) => {
+    const palettes = [
+      ['#132743', '#27496d'],
+      ['#2b2d42', '#4a4e69'],
+      ['#1f3b2d', '#2f5d4f'],
+      ['#4c1d3d', '#7a255d'],
+      ['#3b2b1f', '#6b4c35'],
+    ];
+    const value = String(seed || '')
+      .split('')
+      .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+    return palettes[value % palettes.length];
+  };
+
+  const avatarFallbackStyle = (seed) => {
+    const [a, b] = toneBySeed(seed);
+    return {
+      width: '100%',
+      height: '100%',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontWeight: 800,
+      fontSize: '2rem',
+      color: '#e7efff',
+      background: `linear-gradient(145deg, ${a}, ${b})`,
+      letterSpacing: '0.03em',
+    };
+  };
+
+  const bannerFallbackStyle = (seed) => {
+    const [a, b] = toneBySeed(seed);
+    return {
+      width: '100%',
+      height: '100%',
+      background: `linear-gradient(120deg, ${a}, ${b})`,
+      position: 'relative',
+      overflow: 'hidden',
+    };
+  };
 
   const handleImageUpload = (e, field) => {
     const file = e.target.files[0];
@@ -29,11 +86,13 @@ export default function Profile() {
   const fetchProfileData = () => {
     setLoading(true);
     Promise.all([
-      fetch(`http://localhost:4000/api/users/${user.id}/profile`).then(res => res.json()),
-      fetch(`http://localhost:4000/api/author/${user.id}/novels`).then(res => res.json())
-    ]).then(([profileData, worksData]) => {
+      fetch(`${API_BASE_URL}/api/users/${user.id}/profile`).then(res => res.json()),
+      fetch(`${API_BASE_URL}/api/author/${user.id}/novels`).then(res => res.json()),
+      fetch(`${API_BASE_URL}/api/users/${user.id}/following`).then(res => res.json())
+    ]).then(([profileData, worksData, followingData]) => {
       setUserProfile(profileData);
       setMyWorks(worksData || []);
+      setFollowedAuthors(Array.isArray(followingData) ? followingData : []);
       setEditForm({
         full_name: profileData.full_name || '',
         bio: profileData.bio || '',
@@ -54,7 +113,7 @@ export default function Profile() {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`http://localhost:4000/api/users/${user.id}/profile`, {
+      const res = await fetch(`${API_BASE_URL}/api/users/${user.id}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(editForm)
@@ -128,13 +187,24 @@ export default function Profile() {
 
       <header className="profile-header">
         <div className="profile-banner">
-          <img src={userProfile.banner_url || 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=1200&q=80'} alt="Profile Banner" />
+          {userProfile.banner_url ? (
+            <img src={resolveMediaUrl(userProfile.banner_url)} alt="Profile Banner" />
+          ) : (
+            <div style={bannerFallbackStyle(userProfile.full_name)}>
+              <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.18), transparent 45%)' }} />
+              <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 85% 10%, rgba(255,255,255,0.12), transparent 35%)' }} />
+            </div>
+          )}
           <button className="edit-banner-btn shadow" onClick={() => setIsEditing(true)}><Settings size={18} /> Edit Banner</button>
         </div>
         
         <div className="profile-info-container">
           <div className="profile-avatar-wrapper">
-            <img src={userProfile.avatar_url || 'https://via.placeholder.com/150'} alt={userProfile.full_name} className="profile-avatar" />
+            {userProfile.avatar_url ? (
+              <img src={resolveMediaUrl(userProfile.avatar_url)} alt={userProfile.full_name} className="profile-avatar" />
+            ) : (
+              <div style={avatarFallbackStyle(userProfile.full_name)}>{getInitials(userProfile.full_name)}</div>
+            )}
           </div>
           
           <div className="profile-details">
@@ -172,6 +242,12 @@ export default function Profile() {
           >
             <BookOpen size={18} /> My Works
           </button>
+          <button
+            className={`tab-btn ${activeTab === 'following' ? 'active' : ''}`}
+            onClick={() => setActiveTab('following')}
+          >
+            <Heart size={18} /> Followed Authors
+          </button>
         </div>
 
         <div className="tab-content">
@@ -207,6 +283,38 @@ export default function Profile() {
                  </div>
                )}
              </div>
+          )}
+
+          {activeTab === 'following' && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '1rem' }}>
+              {followedAuthors.map((author) => (
+                <Link
+                  key={author.id}
+                  to={`/user/${author.id}`}
+                  className="glass"
+                  style={{ textDecoration: 'none', color: 'inherit', borderRadius: '0.9rem', padding: '1rem', border: '1px solid var(--border-color)', display: 'flex', gap: '0.85rem', alignItems: 'center' }}
+                >
+                  <img
+                    src={author.avatar_url ? resolveMediaUrl(author.avatar_url) : ''}
+                    alt={author.full_name}
+                    style={{ width: '56px', height: '56px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0, display: author.avatar_url ? 'block' : 'none' }}
+                  />
+                  {!author.avatar_url && (
+                    <div style={{ ...avatarFallbackStyle(author.full_name), width: '56px', height: '56px', fontSize: '1rem', flexShrink: 0 }}>
+                      {getInitials(author.full_name)}
+                    </div>
+                  )}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{author.full_name}</div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginTop: '0.15rem' }}>{author.works_count || 0} works</div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', marginTop: '0.1rem' }}>{author.followers_count || 0} followers</div>
+                  </div>
+                </Link>
+              ))}
+              {followedAuthors.length === 0 && (
+                <p style={{ color: 'var(--text-secondary)', gridColumn: '1 / -1' }}>You are not following any authors yet.</p>
+              )}
+            </div>
           )}
         </div>
       </section>

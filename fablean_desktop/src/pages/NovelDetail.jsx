@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { BookOpen, Star, Users, ArrowLeft, Loader, Send, User } from 'lucide-react';
+import { BookOpen, Star, Users, ArrowLeft, Loader, Send, User, ThumbsUp, X } from 'lucide-react';
 import { useAuth } from '../AuthContext';
+import { API_BASE_URL } from '../config/api';
 
 export default function NovelDetail() {
   const { user } = useAuth();
@@ -9,34 +10,82 @@ export default function NovelDetail() {
   const [novel, setNovel] = useState(null);
   const [reviews, setReviews] = useState([]);
   const [chapters, setChapters] = useState([]);
+  const [lastReadChapter, setLastReadChapter] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Library State
   const [inLibrary, setInLibrary] = useState(false);
   const [togglingLibrary, setTogglingLibrary] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followLoading, setFollowLoading] = useState(false);
 
   // Reviews State
   const [ratingHover, setRatingHover] = useState(0);
   const [newRating, setNewRating] = useState(0);
   const [newReviewText, setNewReviewText] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [helpfulLoadingReviewId, setHelpfulLoadingReviewId] = useState(null);
+  const [showAllChaptersModal, setShowAllChaptersModal] = useState(false);
+
+  const resolveMediaUrl = (url) => {
+    if (!url) return 'https://via.placeholder.com/480x720.png?text=No+Cover';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    return `${API_BASE_URL}${url}`;
+  };
+
+  const formatReads = (value) => {
+    const reads = Number(value || 0);
+    if (!Number.isFinite(reads) || reads < 1000) return String(Math.max(0, Math.floor(reads || 0)));
+    if (reads >= 1000000) {
+      const m = reads / 1000000;
+      return `${m >= 10 ? m.toFixed(0) : m.toFixed(1)}M`;
+    }
+    const k = reads / 1000;
+    return `${k >= 10 ? k.toFixed(0) : k.toFixed(1)}K`;
+  };
+
+  const getLocalLastReadChapter = () => {
+    if (!user?.id) return null;
+    try {
+      const raw = localStorage.getItem(`lastRead:${user.id}:${id}`);
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
-    Promise.all([
-      fetch(`http://localhost:4000/api/novels/${id}`).then(res => res.json()),
-      fetch(`http://localhost:4000/api/novels/${id}/reviews`).then(res => res.json()),
-      fetch(`http://localhost:4000/api/novels/${id}/chapters`).then(res => res.json()),
-      fetch(`http://localhost:4000/api/users/${user.id}/library/check/${id}`).then(res => res.json())
-    ]).then(([novelData, reviewsData, chaptersData, libraryData]) => {
+    const localBookmark = getLocalLastReadChapter();
+    if (localBookmark) setLastReadChapter(localBookmark);
+
+    const requests = [
+      fetch(`${API_BASE_URL}/api/novels/${id}`).then(res => res.json()),
+      fetch(`${API_BASE_URL}/api/novels/${id}/reviews`).then(res => res.json()),
+      fetch(`${API_BASE_URL}/api/novels/${id}/chapters`).then(res => res.json()),
+      fetch(`${API_BASE_URL}/api/users/${user.id}/library/check/${id}`).then(res => res.json())
+    ];
+
+    if (user?.id) {
+      requests.push(fetch(`${API_BASE_URL}/api/users/${user.id}/history/${id}`, { cache: 'no-store' }).then(res => res.json()));
+    }
+
+    Promise.all(requests).then((results) => {
+      const [novelData, reviewsData, chaptersData, libraryData, historyData] = results;
       setNovel(novelData);
       setReviews(reviewsData || []);
       setChapters(chaptersData || []);
       setInLibrary(libraryData.inLibrary);
+
+      const bookmark = Number(historyData?.bookmark_idx);
+      const remoteBookmark = Number.isFinite(bookmark) && bookmark >= 1 ? bookmark : null;
+      const bestBookmark = Math.max(remoteBookmark || 0, localBookmark || 0);
+      setLastReadChapter(bestBookmark > 0 ? bestBookmark : null);
+
       setLoading(false);
 
       if (user?.id && novelData?.author_id) {
-          fetch(`http://localhost:4000/api/users/${user.id}/following/check/${novelData.author_id}`)
+          fetch(`${API_BASE_URL}/api/users/${user.id}/following/check/${novelData.author_id}`)
             .then(res => res.json())
             .then(data => setIsFollowing(data.isFollowing))
             .catch(console.error);
@@ -45,16 +94,24 @@ export default function NovelDetail() {
       console.error("Failed to fetch novel details", err);
       setLoading(false);
     });
-  }, [id]);
+  }, [id, user?.id]);
+
+  const maxChapter = chapters.length > 0
+    ? Math.max(...chapters.map((ch) => Number(ch.chapter_number) || 0))
+    : 1;
+  const continueChapter = lastReadChapter
+    ? Math.min(Math.max(lastReadChapter, 1), Math.max(maxChapter, 1))
+    : 1;
+  const hasReadingProgress = Number.isFinite(lastReadChapter) && lastReadChapter >= 1;
 
   const handleToggleLibrary = async () => {
     setTogglingLibrary(true);
     try {
       if (inLibrary) {
-        await fetch(`http://localhost:4000/api/users/${user.id}/library/${id}`, { method: 'DELETE' });
+        await fetch(`${API_BASE_URL}/api/users/${user.id}/library/${id}`, { method: 'DELETE' });
         setInLibrary(false);
       } else {
-        await fetch(`http://localhost:4000/api/users/${user.id}/library`, {
+        await fetch(`${API_BASE_URL}/api/users/${user.id}/library`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ novelId: id })
@@ -70,11 +127,24 @@ export default function NovelDetail() {
 
   const handleToggleFollow = async () => {
     if (!user?.id || !novel?.author_id) return;
+    setFollowLoading(true);
     try {
       const method = isFollowing ? 'DELETE' : 'POST';
-      const res = await fetch(`http://localhost:4000/api/users/${user.id}/follow/${novel.author_id}`, { method });
-      if (res.ok) setIsFollowing(!isFollowing);
-    } catch(err) { console.error(err); }
+      const res = await fetch(`${API_BASE_URL}/api/users/${user.id}/follow/${novel.author_id}`, { method });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to update follow state');
+      }
+      if (typeof data.isFollowing === 'boolean') {
+        setIsFollowing(data.isFollowing);
+      } else {
+        setIsFollowing(!isFollowing);
+      }
+    } catch(err) {
+      console.error(err);
+      alert(err.message || 'Failed to update follow state');
+    }
+    finally { setFollowLoading(false); }
   };
 
   const handleReviewSubmit = async (e) => {
@@ -84,7 +154,7 @@ export default function NovelDetail() {
     
     setSubmittingReview(true);
     try {
-      const res = await fetch(`http://localhost:4000/api/novels/${id}/reviews`, {
+      const res = await fetch(`${API_BASE_URL}/api/novels/${id}/reviews`, {
          method: 'POST',
          headers: {'Content-Type': 'application/json'},
          body: JSON.stringify({ userId: user.id, rating: newRating, text: newReviewText })
@@ -103,6 +173,35 @@ export default function NovelDetail() {
       alert("Failed to submit review");
     } finally {
       setSubmittingReview(false);
+    }
+  };
+
+  const handleHelpfulClick = async (reviewId) => {
+    if (!user?.id || !reviewId) return;
+    setHelpfulLoadingReviewId(reviewId);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/reviews/${reviewId}/helpful`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to mark review as helpful');
+      }
+
+      setReviews((prev) => prev.map((r) => (
+        Number(r.id) === Number(reviewId)
+          ? { ...r, likes: Number(data.likes || 0) }
+          : r
+      )));
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to mark review as helpful');
+    } finally {
+      setHelpfulLoadingReviewId(null);
     }
   };
 
@@ -125,14 +224,83 @@ export default function NovelDetail() {
 
   return (
     <div className="novel-detail-page animate-fade-in" style={{ maxWidth: '1200px', margin: '0 auto', padding: '2rem' }}>
+      {showAllChaptersModal && (
+        <div
+          onClick={() => setShowAllChaptersModal(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(2, 8, 23, 0.72)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 1200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+        >
+          <div
+            className="glass"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(980px, 100%)',
+              maxHeight: '85vh',
+              borderRadius: '12px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--bg-secondary)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1rem 1.25rem', borderBottom: '1px solid var(--border-color)' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem' }}>All Chapters ({chapters.length})</h3>
+              <button
+                className="btn-outline"
+                onClick={() => setShowAllChaptersModal(false)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.4rem 0.7rem' }}
+              >
+                <X size={16} /> Close
+              </button>
+            </div>
+
+            <div style={{ padding: '1rem', overflowY: 'auto' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '0.75rem' }}>
+                {chapters.map((ch) => (
+                  <Link
+                    key={ch.id}
+                    to={`/read/${novel.id}/${ch.chapter_number}`}
+                    onClick={() => setShowAllChaptersModal(false)}
+                    className="glass"
+                    style={{
+                      textDecoration: 'none',
+                      color: 'var(--text-primary)',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border-color)',
+                      padding: '0.85rem 0.9rem',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.25rem',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Chapter {ch.chapter_number}</span>
+                    <strong style={{ fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ch.title || `Chapter ${ch.chapter_number}`}</strong>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Link to="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: 'var(--text-secondary)', textDecoration: 'none', fontWeight: 'bold' }}>
         <ArrowLeft size={18} /> Back to Library
       </Link>
       
       {/* Hero Header Side-by-Side Flexbox */}
       <div style={{ display: 'flex', gap: '4rem', marginTop: '2rem', flexWrap: 'wrap' }}>
-        <div style={{ flexShrink: 0, width: '300px', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.05)' }}>
-          <img src={novel.cover_url} alt={novel.title} style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'cover' }} />
+        <div style={{ flexShrink: 0, width: '300px', aspectRatio: '2 / 3', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.05)' }}>
+          <img src={resolveMediaUrl(novel.cover_photo || novel.cover_url)} alt={novel.title} style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }} />
         </div>
         
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
@@ -147,13 +315,14 @@ export default function NovelDetail() {
                 <span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{novel.author_name}</span>
               )}
             </span>
-            {user?.id && novel.author_id && user.id !== novel.author_id && (
+            {user?.id && novel.author_id && Number(user.id) !== Number(novel.author_id) && (
                 <button 
                   onClick={handleToggleFollow}
                   className={`btn-outline ${isFollowing ? 'active' : ''}`}
+                  disabled={followLoading}
                   style={{ padding: '0.2rem 0.8rem', fontSize: '0.9rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.3rem' }}
                 >
-                  <User size={14} /> {isFollowing ? 'Following' : 'Follow'}
+                  <User size={14} /> {followLoading ? 'Saving...' : (isFollowing ? 'Following' : 'Follow')}
                 </button>
             )}
           </div>
@@ -161,7 +330,7 @@ export default function NovelDetail() {
           <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem', fontWeight: 'bold' }}><Star size={20} fill="currentColor" className="text-accent" /> {novel.rating?.toFixed(1) || '0.0'}</span>
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem', color: 'var(--text-secondary)' }}><BookOpen size={20} /> {chapters.length || 0} Chapters</span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem', color: 'var(--text-secondary)' }}><Users size={20} /> {(novel.reads / 1000).toFixed(1)}K Reads</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.1rem', color: 'var(--text-secondary)' }}><Users size={20} /> {formatReads(novel.reads)} Reads</span>
           </div>
 
           <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '3rem', flexWrap: 'wrap' }}>
@@ -171,7 +340,9 @@ export default function NovelDetail() {
           </div>
 
           <div style={{ display: 'flex', gap: '1rem' }}>
-            <Link to={`/read/${novel.id}/1`} className="btn-primary" style={{ textDecoration: 'none', padding: '1rem 2.5rem', fontSize: '1.1rem' }}>Start Reading</Link>
+            <Link to={`/read/${novel.id}/${continueChapter}`} className="btn-primary" style={{ textDecoration: 'none', padding: '1rem 2.5rem', fontSize: '1.1rem' }}>
+              {hasReadingProgress ? `Continue (Chapter ${continueChapter})` : 'Start Reading'}
+            </Link>
             <button 
               className={inLibrary ? 'btn-primary shadow' : 'btn-outline'} 
               onClick={handleToggleLibrary}
@@ -188,7 +359,7 @@ export default function NovelDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '4rem', marginTop: '5rem' }}>
         <div style={{ gridColumn: '1 / span 2' }}>
           <h2 style={{ fontSize: '1.8rem', marginBottom: '1.5rem', borderBottom: '2px solid var(--border-color)', paddingBottom: '0.5rem' }}>Synopsis</h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', lineHeight: '1.8' }}>{novel.synopsis}</p>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '1.1rem', lineHeight: '1.8' }}>{novel.synopsis || 'No synopsis yet.'}</p>
         </div>
 
         <div>
@@ -203,7 +374,11 @@ export default function NovelDetail() {
                  <BookOpen size={18} className="text-secondary" />
                </Link>
              ))}
-             {chapters.length > 5 && <button className="btn-outline" style={{ marginTop: '1rem' }}>View All {chapters.length} Chapters</button>}
+             {chapters.length > 5 && (
+               <button className="btn-outline" style={{ marginTop: '1rem' }} onClick={() => setShowAllChaptersModal(true)}>
+                 View All {chapters.length} Chapters
+               </button>
+             )}
           </div>
         </div>
       </div>
@@ -268,9 +443,23 @@ export default function NovelDetail() {
                     </span>
                  </div>
                  <p style={{ color: 'var(--text-primary)', lineHeight: '1.6', marginBottom: '1.5rem', fontSize: '1.05rem' }}>{r.content || r.text}</p>
-                 <button className="btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    👍 Helpful ({r.likes || 0})
-                 </button>
+                  {Number(r.user_id) !== Number(user?.id) ? (
+                    <button
+                      className="btn-outline"
+                      onClick={() => handleHelpfulClick(r.id)}
+                      disabled={helpfulLoadingReviewId === r.id}
+                      style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    >
+                      {helpfulLoadingReviewId === r.id ? 'Saving...' : <><ThumbsUp size={16} /> Helpful ({r.likes || 0})</>}
+                    </button>
+                  ) : (
+                    <span
+                      className="btn-outline"
+                      style={{ padding: '0.5rem 1rem', fontSize: '0.9rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem', opacity: 0.8, cursor: 'default' }}
+                    >
+                      <ThumbsUp size={16} /> Helpful ({r.likes || 0})
+                    </span>
+                  )}
                </div>
              ))}
           </div>

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Star, BookOpen } from 'lucide-react';
+import { API_BASE_URL } from '../config/api';
 
 export default function NovelCard({ novel }) {
   // Parse tags safely
@@ -9,11 +10,22 @@ export default function NovelCard({ novel }) {
     parsedTags = JSON.parse(novel.tags || '[]');
   } catch(e) {}
 
+  const resolveMediaUrl = (url) => {
+    if (!url) return 'https://via.placeholder.com/480x720.png?text=No+Cover';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    return `${API_BASE_URL}${url}`;
+  };
+
+  const formatRating = (value) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(1) : '0.0';
+  };
+
   return (
     <Link to={`/novel/${novel.id}`} className="novel-card">
       <div className="card-image-wrapper">
         <img 
-          src={novel.cover_photo || novel.cover_url || 'https://via.placeholder.com/480x720.png?text=No+Cover'} 
+          src={resolveMediaUrl(novel.cover_photo || novel.cover_url)} 
           alt={novel.title} 
           className="card-image" 
           loading="lazy" 
@@ -32,7 +44,7 @@ export default function NovelCard({ novel }) {
         
         <div className="card-stats">
           <span className="rating">
-            <Star size={14} className="star-icon" fill="currentColor" /> {novel.rating}
+            <Star size={14} className="star-icon" fill="currentColor" /> {formatRating(novel.rating)}
           </span>
           <span className="genre">{novel.genre}</span>
         </div>

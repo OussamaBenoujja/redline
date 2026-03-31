@@ -17,11 +17,12 @@ const PORT = Number(process.env.PORT) || 4000;
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
+app.use('/generated', express.static(path.resolve(__dirname, '../data/generated')));
 
 // Routes
 app.use('/api', routes);
 
-// Socket.io Real-time Collaborative Editing
+// Socket.io 
 io.on('connection', (socket) => {
     console.log('Client connected for real-time editing');
     
@@ -31,12 +32,12 @@ io.on('connection', (socket) => {
         console.log(`User ${userId} joined room user_${userId}`);
     });
     
-    socket.on('edit_chapter', (data) => {
+     socket.on('edit_chapter', async (data) => {
         const { chapterId, fullText } = data;
         if (chapterId && fullText !== undefined) {
              try {
-                const updateCmd = db.prepare("UPDATE chapters SET full_text = ? WHERE id = ?");
-                updateCmd.run(fullText, chapterId);
+                     const updateCmd = await db.prepare("UPDATE chapters SET full_text = ? WHERE id = ?");
+                     await updateCmd.run(fullText, chapterId);
                 // console.log(`Chapter ${chapterId} live-saved via Socket!`);
              } catch(err) {
                 console.error("Socket DB Save error: ", err);
@@ -54,6 +55,14 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', database: 'connected' });
 });
 
-server.listen(PORT, () => {
-    console.log(`Fablean Memory HTTP/WebSocket Service running on http://localhost:${PORT}`);
+async function startServer() {
+    await db.initSchema();
+    server.listen(PORT, () => {
+        console.log(`Fablean Memory HTTP/WebSocket Service running on http://localhost:${PORT}`);
+    });
+}
+
+startServer().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import NovelDetail from './pages/NovelDetail';
@@ -8,10 +8,20 @@ import Profile from './pages/Profile';
 import AuthorDashboard from './pages/AuthorDashboard';
 import AuthorEditor from './pages/AuthorEditor';
 import PublicProfile from './pages/PublicProfile';
-import { AuthProvider } from './AuthContext';
+import SignIn from './pages/SignIn';
+import SignUp from './pages/SignUp';
+import { AuthProvider, useAuth } from './AuthContext';
 import './index.css';
 
-function App() {
+function ProtectedRoute({ children }) {
+  const { user, authLoading } = useAuth();
+  if (authLoading) return <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>Loading...</div>;
+  if (!user) return <Navigate to="/signin" replace />;
+  return children;
+}
+
+function AppContent() {
+  const { user } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(true);
 
   useEffect(() => {
@@ -28,23 +38,33 @@ function App() {
   };
 
   return (
+    <Router>
+      <div className="app-container">
+        {user && <Navbar isDarkMode={isDarkMode} toggleTheme={toggleTheme} />}
+        <main className={user ? 'main-content' : ''}>
+          <Routes>
+            <Route path="/signin" element={user ? <Navigate to="/" replace /> : <SignIn />} />
+            <Route path="/signup" element={user ? <Navigate to="/" replace /> : <SignUp />} />
+
+            <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+            <Route path="/novel/:id" element={<ProtectedRoute><NovelDetail /></ProtectedRoute>} />
+            <Route path="/read/:novelId/:chapterNum" element={<ProtectedRoute><Reader /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+            <Route path="/user/:id" element={<ProtectedRoute><PublicProfile /></ProtectedRoute>} />
+            <Route path="/author/dashboard" element={<ProtectedRoute><AuthorDashboard /></ProtectedRoute>} />
+            <Route path="/author/editor/:novelId" element={<ProtectedRoute><AuthorEditor /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to={user ? '/' : '/signin'} replace />} />
+          </Routes>
+        </main>
+      </div>
+    </Router>
+  );
+}
+
+function App() {
+  return (
     <AuthProvider>
-      <Router>
-        <div className="app-container">
-          <Navbar isDarkMode={isDarkMode} toggleTheme={toggleTheme} />
-          <main className="main-content">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/novel/:id" element={<NovelDetail />} />
-              <Route path="/read/:novelId/:chapterNum" element={<Reader />} />
-              <Route path="/profile" element={<Profile />} />
-              <Route path="/user/:id" element={<PublicProfile />} />
-              <Route path="/author/dashboard" element={<AuthorDashboard />} />
-              <Route path="/author/editor/:novelId" element={<AuthorEditor />} />
-            </Routes>
-          </main>
-        </div>
-      </Router>
+      <AppContent />
     </AuthProvider>
   );
 }
